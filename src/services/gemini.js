@@ -8,9 +8,36 @@
 
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent";
 
+// Translate technical API errors into friendly teacher-facing messages
+function friendlyError(status, technicalMessage = "") {
+  const msg = technicalMessage.toLowerCase();
+
+  if (!navigator.onLine) {
+    return "No internet connection. Please check your connection and try again.";
+  }
+  if (status === 401 || status === 403 || msg.includes("api key") || msg.includes("permission")) {
+    return "The app is not authorised to generate content right now. Please contact your administrator.";
+  }
+  if (status === 429 || msg.includes("quota") || msg.includes("rate limit") || msg.includes("resource exhausted")) {
+    return "The app has reached its daily generation limit. Please try again tomorrow or contact your administrator.";
+  }
+  if (status === 503 || status === 502 || msg.includes("unavailable") || msg.includes("overloaded")) {
+    return "The generation service is temporarily busy. Please wait a moment and try again.";
+  }
+  if (msg.includes("no longer available") || msg.includes("deprecated") || msg.includes("not found")) {
+    return "A configuration update is needed. Please contact your administrator.";
+  }
+  if (status >= 500) {
+    return "Something went wrong on our end. Please try again in a few minutes.";
+  }
+  return "Generation failed. Please check your internet connection and try again.";
+}
+
 async function callGemini(systemPrompt, userPrompt, questionBankText = "") {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!apiKey) throw new Error("Gemini API key not configured. Add VITE_GEMINI_API_KEY to your environment variables.");
+  if (!apiKey) {
+    throw new Error("The app is not fully set up yet. Please contact your administrator.");
+  }
 
   // Build the full prompt — Gemini uses a single contents array
   const questionBankSection = questionBankText
@@ -19,26 +46,44 @@ async function callGemini(systemPrompt, userPrompt, questionBankText = "") {
 
   const fullPrompt = `${systemPrompt}\n\n${userPrompt}${questionBankSection}`;
 
-  const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: fullPrompt }] }],
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 8192,
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err?.error?.message || "Gemini API error. Check your API key and try again.");
+  let response;
+  try {
+    response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: fullPrompt }] }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 8192,
+        },
+      }),
+    });
+  } catch {
+    // Network-level failure (offline, DNS, etc.)
+    throw new Error("Could not reach the generation service. Please check your internet connection and try again.");
   }
 
-  const data = await response.json();
+  if (!response.ok) {
+    let technicalMessage = "";
+    try {
+      const err = await response.json();
+      technicalMessage = err?.error?.message || "";
+    } catch { /* ignore parse errors */ }
+    throw new Error(friendlyError(response.status, technicalMessage));
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error("Received an unexpected response. Please try again.");
+  }
+
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("No response received from Gemini. Please try again.");
+  if (!text) {
+    throw new Error("No content was generated. Please try again or adjust your selection.");
+  }
   return text;
 }
 
