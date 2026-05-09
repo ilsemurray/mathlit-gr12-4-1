@@ -6,7 +6,7 @@
  * Get your key at: https://aistudio.google.com/app/apikey
  */
 
-const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent";
+const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent";
 
 // Translate technical API errors into friendly teacher-facing messages
 function friendlyError(status, technicalMessage = "") {
